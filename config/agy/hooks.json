@@ -1,0 +1,10 @@
+{
+  "voicemode-summary-speaker": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "/home/guido/.voicemode/bin/voicemode-hook-receiver --event Stop || true"
+      }
+    ]
+  }
+}

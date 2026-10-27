@@ -1,0 +1,19 @@
+[Unit]
+Description=whisper.cpp server (large-v3-turbo on Intel Arc B580 via Vulkan)
+After=graphical-session.target
+
+[Service]
+Type=simple
+# Hide every Vulkan device except the Arc B580. ggml enumerates the AMD 760M
+# iGPU as device 0 and defaults to it, and whisper-server has no device flag.
+Environment=GGML_VK_VISIBLE_DEVICES=1
+ExecStart=/scratch/guido/stt/whisper.cpp/build/bin/whisper-server \
+    --model /scratch/guido/stt/models/ggml-large-v3-turbo-q8_0.bin \
+    --host 127.0.0.1 --port 8910 \
+    --language en --beam-size 1 --best-of 1 --threads 4 \
+    --no-timestamps --suppress-nst
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

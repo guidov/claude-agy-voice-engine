@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# voicemode-stop - Fast interruption / barge-in command
+python3 - << 'EOF'
+import socket, os, subprocess
+from pathlib import Path
+
+# 1. VoiceMode control socket
+sock = Path.home() / '.voicemode' / 'control.sock'
+if sock.exists():
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(0.08)
+            s.connect(str(sock))
+            s.sendall(b'{"command":"stop"}\n')
+            print("Sent stop to VoiceMode control channel.")
+    except Exception:
+        pass
+
+# 2. Summary player PID
+pid_file = Path.home() / '.voicemode' / 'summary_player.pid'
+if pid_file.exists():
+    try:
+        pid = int(pid_file.read_text().strip())
+        os.kill(pid, 15)
+        print(f"Terminated summary player PID {pid}.")
+    except Exception:
+        pass
+    try:
+        pid_file.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+# 3. Kill pw-play summary audio
+my_pid = str(os.getpid())
+subprocess.run(["pkill", "-f", "voicemode_summary.wav"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+EOF

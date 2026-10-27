@@ -1,0 +1,103 @@
+# dictate — configuration
+
+[server]
+# whisper.cpp server endpoint (started by whisper-server.service)
+url = "http://127.0.0.1:8910/inference"
+# seconds to wait for a transcription before giving up
+timeout = 120.0
+
+[hotkey]
+# evdev key name for push-to-talk. Hold to record, release to transcribe.
+# Common choices: KEY_RIGHTCTRL, KEY_RIGHTALT, KEY_RIGHTSHIFT, KEY_RIGHTMETA, KEY_SCROLLLOCK
+# (right fn is jeannie's live-talk key, right alt is jeannie's speak-to-box key;
+#  right ctrl drives this dictate — vim keeps right shift)
+key = "KEY_RIGHTCTRL"
+# Ignore taps shorter than this (seconds) so a normal Ctrl press does nothing.
+min_duration = 0.25
+
+[audio]
+# Capture straight at Whisper's native rate; PortAudio resamples properly.
+samplerate = 16000
+# Hard cap on a single utterance (seconds).
+max_duration = 300.0
+
+[transcribe]
+# "" = auto-detect. "en" is faster and more accurate if you only speak English.
+language = "en"
+# Greedy (0) is fastest. 5 is the old default; turbo rarely benefits.
+beam_size = 0
+# Text appended after each transcription.
+suffix = " "
+
+# Initial prompt. Whisper conditions on this as if it were the preceding
+# transcript, so it biases both vocabulary and *style* -- which is what makes
+# spoken "dash l r t" come out as "-lrt" instead of the words. Write it as a
+# sample of the output you want, not as an instruction: Whisper does not
+# follow instructions, it imitates.
+#
+# Hard limit is 224 tokens; anything longer is silently truncated from the
+# front. If short or unclear audio starts echoing fragments of this text back
+# at you, that is prompt hallucination -- shorten it.
+prompt = """
+I am dictating into a terminal and an editor. Let's run git commit -am "fix
+off-by-one in the parser", then git push -u origin main. Check the logs with
+journalctl --user -u dictate -f, and list them using ls -lrt /var/log. Search
+the tree with grep -rn "TODO" src/ | head -20. Install the deps by running uv
+pip install numpy requests, then python3 -m pytest tests/ -k auth -v. Restart
+it with sudo systemctl restart nginx, and bring the stack up using docker
+compose up -d --build. Refactor that handler to return early, add a null
+check, and make it a dataclass. The CI test fails on Python 3.12, so let's
+pin the version and open a PR.
+"""
+
+# Prepend the prompt to every decode window, not just the first. Utterances
+# this short are a single window, so this rarely matters.
+carry_initial_prompt = false
+
+[output]
+# How to deliver the text:
+#   "type"      ydotool synthesises the keystrokes. Works in terminals and
+#               browsers alike, and never touches your clipboard.
+#   "paste"     clipboard + paste keystroke (see paste_key below).
+#   "clipboard" copy only; paste it yourself.
+mode = "paste"
+# Keystroke sent to paste: modifiers from ctrl/shift/alt/super, then v or
+# insert. Terminals (VTE: gnome-terminal, Terminator, kitty...) paste with
+# Ctrl+Shift+V; browsers and editors read that as paste-as-plain-text, which
+# is all dictation ever is. VTE also accepts "shift+insert", a two-key chord
+# instead of a three-key one -- worth trying if the three-key version makes
+# the window flicker as it lands.
+paste_key = "ctrl+shift+v"
+# Milliseconds between keystrokes in "type" mode. 0 is fastest.
+key_delay = 0
+# Milliseconds each key is held down in "type" mode (default was 20). 0 is fastest.
+key_hold = 0
+# "paste" mode only: restore whatever was on the clipboard before we clobbered it.
+restore_clipboard = true
+# Pause between the clipboard write and the paste keystroke. With
+# clipboard_tool = "xclip" the write is verified against the X selection, and
+# mutter's mirroring of that into the Wayland selection is the one link that
+# cannot be checked without opening a window. Raise this if a paste ever
+# delivers the previous dictation; 0 disables it.
+paste_settle_ms = 20
+# Which tool writes the clipboard: "auto", "xclip", or "wl-copy".
+#
+# This is what causes the window to flicker at paste time. GNOME/Mutter
+# advertises no data-control protocol, so wl-copy cannot set the selection
+# without a serial from a focused surface: it opens a real window titled
+# "wl-clipboard", takes keyboard focus, sets the selection and destroys the
+# window -- once for the text and once more to restore your clipboard. xclip
+# owns an unmapped X window instead, needs no focus, and mutter mirrors the X
+# CLIPBOARD into the Wayland one, so the paste is invisible. "auto" prefers
+# xclip when DISPLAY is set (Xwayland is running under GNOME) and falls back
+# to wl-copy, verifying through the Wayland selection either way.
+clipboard_tool = "auto"
+
+[feedback]
+# desktop notification on start/stop
+notify = false
+# Audible cues. true/false for all or nothing, or pick the ones you want from
+# "start" (key pressed, now listening), "done" (transcript delivered) and
+# "error". The "done" blip is what sounds like a terminal bell -- the text
+# appearing already tells you it worked -- so only "start" is on by default.
+sound = ["start"]

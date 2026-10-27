@@ -1,0 +1,23 @@
+[Unit]
+Description=Claude STT/TTS Voice Bridge (Whisper XPU + Kokoro TTS)
+After=network.target whisper-server.service
+Wants=whisper-server.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/guido/claude_STT_TTS
+ExecStart=/scratch/guido/miniconda3/envs/vllm-xpu/bin/python /home/guido/claude_STT_TTS/server.py
+Restart=always
+RestartSec=3
+
+# Environment
+Environment="PYTHONUNBUFFERED=1"
+Environment="PATH=/scratch/guido/miniconda3/envs/vllm-xpu/bin:/usr/local/bin:/usr/bin:/bin"
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=claude-voice-bridge
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# voicemode-summary - Toggle between spoken summary TTS and quiet chime-only mode
+
+SENTINEL="$HOME/.voicemode/summary-disabled"
+
+case "${1:-status}" in
+  on|enable)
+    rm -f "$SENTINEL"
+    echo "Spoken summary TTS is now ENABLED (Kokoro reads final summaries aloud)."
+    ;;
+  off|disable)
+    touch "$SENTINEL"
+    echo "Spoken summary TTS is now DISABLED (Quiet mode: single completion chime only)."
+    ;;
+  toggle)
+    if [ -f "$SENTINEL" ]; then
+      rm -f "$SENTINEL"
+      echo "Spoken summary TTS is now ENABLED (Kokoro reads final summaries aloud)."
+    else
+      touch "$SENTINEL"
+      echo "Spoken summary TTS is now DISABLED (Quiet mode: single completion chime only)."
+    fi
+    ;;
+  status)
+    if [ -f "$SENTINEL" ]; then
+      echo "Summary mode: QUIET CHIME (Spoken TTS disabled via ~/.voicemode/summary-disabled)"
+    else
+      echo "Summary mode: SPOKEN TTS (Kokoro reads final summaries aloud)"
+    fi
+    ;;
+  *)
+    echo "Usage: voicemode-summary [on|off|toggle|status]"
+    exit 1
+    ;;
+esac

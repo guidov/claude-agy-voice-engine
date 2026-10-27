@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "voicemode": {
+      "command": "uvx",
+      "args": [
+        "--with",
+        "webrtcvad",
+        "--with",
+        "setuptools<71",
+        "voice-mode"
+      ],
+      "env": {
+        "VOICEMODE_ALWAYS_TRY_LOCAL": "true",
+        "VOICEMODE_CONTROL_CHANNEL_ENABLED": "true",
+        "VOICEMODE_MOUTH_BARGE": "partial",
+        "VOICEMODE_MOUTH_BARGE_DEVICES": ".*",
+        "VOICEMODE_MOUTH_BARGE_WORDS": "2",
+        "VOICEMODE_PREFER_LOCAL": "true",
+        "VOICEMODE_STT_BASE_URLS": "http://127.0.0.1:2022/v1",
+        "VOICEMODE_TTS_BASE_URLS": "http://127.0.0.1:8880/v1"
+      }
+    }
+  }
+}

@@ -1,0 +1,24 @@
+[Unit]
+Description=Push-to-talk dictation client (whisper.cpp backend)
+After=whisper-server.service
+Wants=whisper-server.service
+# Bound to the graphical session, not default.target: started at boot it wins
+# the race against GNOME importing DISPLAY/WAYLAND_DISPLAY/XAUTHORITY into the
+# user manager, and then ydotool and the clipboard tools cannot reach the
+# session at all.
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/guido/intel-speech-to-text
+ExecStart=/scratch/guido/stt/venv/bin/python /home/guido/intel-speech-to-text/dictate.py
+Restart=always
+RestartSec=2
+# the process pings WATCHDOG=1; if it wedges (audio or clipboard stall),
+# systemd restarts it instead of leaving a deaf listener running
+WatchdogSec=60
+NotifyAccess=all
+
+[Install]
+WantedBy=graphical-session.target
