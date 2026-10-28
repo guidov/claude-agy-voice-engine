@@ -69,6 +69,11 @@ def clean_for_speech(text: str) -> str:
     text = re.sub(r'^\s*\d+\.\s+', '', text, flags=re.MULTILINE)
     # Remove blockquotes
     text = re.sub(r'^\s*>\s+', '', text, flags=re.MULTILINE)
+    # Clean markdown table rows (strip separator lines like |---|---| and convert pipes to commas)
+    text = re.sub(r'^\s*\|?\s*:?-+:?\s*\|.*$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*\|\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\s*\|\s*$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\s*\|\s*', ', ', text)
     # Remove emoji / non-ascii decoration that TTS might stumble on
     text = re.sub(r'[\u25CF\u2713\u2714\u2716\u2717\u25B6\u25BC\u2728\u2733\u2743\uD83D\uD83E\uD83C][\uDC00-\uDFFF]?', '', text)
     # Collapse 3+ newlines to 2 newlines (paragraph boundary)
