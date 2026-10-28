@@ -33,6 +33,7 @@ SUMMARY_WAV_PATH = Path("/tmp/voicemode_summary.wav")
 FALLBACK_MP3_PATH = Path.home() / ".voicemode" / "soundfonts" / "voicemode" / "fallback.mp3"
 DISABLED_SENTINEL = Path.home() / ".voicemode" / "summary-disabled"
 LOG_PATH = Path.home() / ".voicemode" / "logs" / "summary-speaker.log"
+MAX_SUMMARY_CHARS = int(os.environ.get("VOICEMODE_SUMMARY_MAX_CHARS", "2000"))
 
 def log(msg: str):
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -41,6 +42,10 @@ def log(msg: str):
 
 def clean_for_speech(text: str) -> str:
     """Clean markdown and technical markup into natural speakable English."""
+    # Remove terminal UI status lines like "✻ Sautéed for 3m 46s · done..."
+    text = re.sub(r'^[✻*•-]?\s*(?:Sautéed|Cooked|Baked|Ran|Completed|done).*?·.*$', '', text, flags=re.MULTILINE | re.IGNORECASE)
+    text = re.sub(r'^[✻*•-].*shell still running.*$', '', text, flags=re.MULTILINE | re.IGNORECASE)
+
     # Remove code blocks
     text = re.sub(r'```[\s\S]*?```', '', text)
     # Remove inline code
@@ -59,45 +64,63 @@ def clean_for_speech(text: str) -> str:
     text = re.sub(r'__([^_]+)__', r'\1', text)
     # Remove HTML tags
     text = re.sub(r'<[^>]+>', '', text)
-    # Remove bullet markers but keep text
+    # Remove bullet markers but keep line breaks so thoughts don't run together
     text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)
     text = re.sub(r'^\s*\d+\.\s+', '', text, flags=re.MULTILINE)
     # Remove blockquotes
     text = re.sub(r'^\s*>\s+', '', text, flags=re.MULTILINE)
     # Remove emoji / non-ascii decoration that TTS might stumble on
-    text = re.sub(r'[\u25CF\u2713\u2714\u2716\u2717\u25B6\u25BC\u2728\uD83D\uD83E\uD83C][\uDC00-\uDFFF]?', '', text)
-    # Collapse extra whitespace
-    text = re.sub(r'\n{2,}', '\n', text)
+    text = re.sub(r'[\u25CF\u2713\u2714\u2716\u2717\u25B6\u25BC\u2728\u2733\u2743\uD83D\uD83E\uD83C][\uDC00-\uDFFF]?', '', text)
+    # Collapse 3+ newlines to 2 newlines (paragraph boundary)
+    text = re.sub(r'\n{3,}', '\n\n', text)
     text = re.sub(r'[ \t]+', ' ', text)
     return text.strip()
 
+def truncate_to_sentence(text: str, max_chars: int) -> str:
+    """Truncate text at the last sentence boundary before max_chars."""
+    if len(text) <= max_chars:
+        return text
+    sub = text[:max_chars]
+    # Look for last sentence ending (.!?) followed by space or newline
+    m = re.search(r'([.!?])(?:\s+[A-Z0-9]|\s*$)', sub)
+    if m:
+        return sub[:m.start(1) + 1]
+    return sub.rsplit(' ', 1)[0] + '...'
+
 def pick_summary_text(raw_text: str) -> str:
-    """Extract a concise summary of the outcome from the assistant's message."""
+    """Extract a comprehensive summary from the assistant's message for TTS playback."""
     cleaned = clean_for_speech(raw_text)
     if not cleaned:
         return ""
 
-    # Check if there is an explicit Summary or Outcome section
+    # If the entire cleaned message is within our limit, speak all of it!
+    if len(cleaned) <= MAX_SUMMARY_CHARS:
+        return cleaned
+
+    # Otherwise, check if there is an explicit Summary, Outcome, or Conclusion section
     summary_match = re.search(r'(?:Summary|Outcome|Status|Done|Conclusion|What was done)[:\s]+([\s\S]+)', cleaned, re.IGNORECASE)
     if summary_match:
         section = summary_match.group(1).strip()
-        paragraphs = [p.strip() for p in section.split('\n') if p.strip()]
-        if paragraphs:
-            summary_candidate = paragraphs[0]
-            if len(summary_candidate) > 20:
-                return summary_candidate[:400]
+        if len(section) > 40:
+            if len(section) <= MAX_SUMMARY_CHARS:
+                return section
+            return truncate_to_sentence(section, MAX_SUMMARY_CHARS)
 
-    # Otherwise take the first 1-2 paragraphs of the response
-    paragraphs = [p.strip() for p in cleaned.split('\n') if p.strip()]
-    if not paragraphs:
-        return ""
+    # Accumulate full paragraphs up to MAX_SUMMARY_CHARS
+    paragraphs = [p.strip() for p in cleaned.split('\n\n') if p.strip()]
+    accumulated = []
+    current_len = 0
+    for p in paragraphs:
+        if current_len + len(p) + 2 <= MAX_SUMMARY_CHARS:
+            accumulated.append(p)
+            current_len += len(p) + 2
+        else:
+            break
 
-    first_para = paragraphs[0]
-    # If first para is very short and there is a second, combine
-    if len(first_para) < 120 and len(paragraphs) > 1:
-        combined = f"{first_para} {paragraphs[1]}"
-        return combined[:400]
-    return first_para[:400]
+    if accumulated:
+        return "\n\n".join(accumulated)
+
+    return truncate_to_sentence(cleaned, MAX_SUMMARY_CHARS)
 
 def extract_from_transcript(path_str: str) -> str:
     """Extract final message from a Claude Code (.jsonl) or AGY (.jsonl) transcript."""
@@ -151,7 +174,7 @@ def synthesize_kokoro(text: str) -> bool:
         headers={"Content-Type": "application/json"}
     )
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=60) as resp:
             data = resp.read()
             SUMMARY_WAV_PATH.write_bytes(data)
             return True

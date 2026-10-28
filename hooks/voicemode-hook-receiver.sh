@@ -143,6 +143,20 @@ if [[ "$EVENT" == "Stop" ]]; then
   exit 0
 fi
 
+# Handle Notification event: ignore idle_prompt to prevent delayed beeps after turn completion
+if [[ "$EVENT" == "Notification" ]]; then
+  notif_type=""
+  if command -v jq &>/dev/null; then
+    notif_type=$(echo "$JSON_INPUT" | jq -r '.notification_type // ""')
+  else
+    notif_type=$(echo "$JSON_INPUT" | grep -o '"notification_type"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*:.*"\([^"]*\)"/\1/' || echo "")
+  fi
+  if [[ "$notif_type" == "idle_prompt" ]]; then
+    debug "Ignoring idle_prompt notification (no sound)"
+    exit 0
+  fi
+fi
+
 # Skip sounds for voicemode converse tool - voice conversations provide their own audio feedback
 # Covers all known converse tool name variants:
 #   mcp__plugin_voicemode_voicemode__converse  (plugin-namespaced, primary distribution)
