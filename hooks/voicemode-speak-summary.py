@@ -27,6 +27,7 @@ from pathlib import Path
 
 KOKORO_TTS_URL = "http://127.0.0.1:8880/v1/audio/speech"
 TTS_VOICE = os.environ.get("VOICEMODE_VOICE", "af_sky")
+TTS_SPEED = float(os.environ.get("VOICEMODE_TTS_SPEED", os.environ.get("KOKORO_TTS_SPEED", "1.2")))
 CONTROL_SOCK_PATH = Path.home() / ".voicemode" / "control.sock"
 PID_FILE_PATH = Path.home() / ".voicemode" / "summary_player.pid"
 SUMMARY_WAV_PATH = Path("/tmp/voicemode_summary.wav")
@@ -170,6 +171,7 @@ def synthesize_kokoro(text: str) -> bool:
         "input": text,
         "voice": TTS_VOICE,
         "model": "tts-1",
+        "speed": TTS_SPEED,
         "response_format": "wav"
     }).encode("utf-8")
 

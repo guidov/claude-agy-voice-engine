@@ -36,6 +36,7 @@ logger = logging.getLogger("claude-voice-bridge")
 WHISPER_URL = os.environ.get("WHISPER_URL", "http://127.0.0.1:8910/inference")
 KOKORO_MODEL_PATH = os.environ.get("KOKORO_MODEL_PATH", "/home/guido/jeannie/models/kokoro-v1.0.onnx")
 KOKORO_VOICES_PATH = os.environ.get("KOKORO_VOICES_PATH", "/home/guido/jeannie/models/voices-v1.0.bin")
+DEFAULT_TTS_SPEED = float(os.environ.get("KOKORO_TTS_SPEED", os.environ.get("VOICEMODE_TTS_SPEED", "1.2")))
 
 # Voice alias mapping for common OpenAI voice names
 OPENAI_VOICE_MAP = {
@@ -202,7 +203,7 @@ class SpeechRequest(BaseModel):
     input: str
     voice: Optional[str] = "af_sky"
     response_format: Optional[str] = "pcm"
-    speed: Optional[float] = 1.0
+    speed: Optional[float] = None
 
 
 @app.post("/v1/audio/speech")
@@ -225,7 +226,7 @@ async def speech(req: SpeechRequest):
         logger.warning(f"Voice '{voice}' not found in Kokoro. Falling back to 'af_sky'.")
         voice = "af_sky"
 
-    speed = float(req.speed) if req.speed is not None else 1.0
+    speed = float(req.speed) if req.speed is not None else DEFAULT_TTS_SPEED
     lang = get_lang_for_voice(voice)
     fmt = (req.response_format or "pcm").lower()
 
