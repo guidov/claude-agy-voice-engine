@@ -123,6 +123,26 @@ voice-engine dictate on         # Start Right-Ctrl dictate daemon
 voice-engine dictate off        # Stop Right-Ctrl dictate daemon
 ```
 
+#### Quick Reference Table
+
+| Scope | Command | Direct Shortcut | Action |
+|---|---|---|---|
+| **Global** | `voice-engine on` / `off` | — | Starts / stops Whisper GPU, Voice Bridge & Dictate daemons |
+| **Global** | `voice-engine toggle` | — | Toggles all background voice services |
+| **Global** | `voice-engine status` | — | Displays unified diagnostics dashboard across hardware & clients |
+| **Global** | `voice-engine summary on` / `off` | — | Global mute/unmute for all turn completion summaries |
+| **Global** | `voice-engine dictate on` / `off` | — | Starts / stops `KEY_RIGHTCTRL` push-to-talk daemon |
+| **Antigravity** | `voice-engine agy on` / `off` | `voice-engine-agy on` / `off` | Enables / disables `voicemode` MCP server & skills in AGY |
+| **Antigravity** | `voice-engine agy toggle` | `voice-engine-agy toggle` | Toggles Antigravity voice integration ON / OFF |
+| **Antigravity** | `voice-engine agy status` | `voice-engine-agy status` | Shows Antigravity MCP and skills status |
+| **Antigravity** | `voice-engine agy summary on` / `off` | `voice-engine-agy summary on` / `off` | Enables / disables Kokoro reading AGY task summaries |
+| **Antigravity** | `voice-engine agy uninstall` | `voice-engine-agy uninstall` | Cleanly removes MCP server, skills, and hooks from AGY |
+| **Claude Code** | `voice-engine claude on` / `off` | `voice-engine-claude on` / `off` | Enables / disables `/localvoice`, `/talk`, `/code` commands in Claude |
+| **Claude Code** | `voice-engine claude toggle` | `voice-engine-claude toggle` | Toggles Claude Code voice integration ON / OFF |
+| **Claude Code** | `voice-engine claude status` | `voice-engine-claude status` | Shows Claude commands and hook isolation status |
+| **Claude Code** | `voice-engine claude summary on` / `off` | `voice-engine-claude summary on` / `off` | Enables / disables turn completion summaries in Claude |
+| **Claude Code** | `voice-engine claude hooks-off` | `voice-engine-claude hooks-off` | Strips Stop hook to keep native `/voice` completely isolated |
+
 ### 4. Running Cleanly Without Interfering with `/voice`
 Claude Code comes with a built-in `/voice` feature. To prevent the local Whisper/Kokoro engine from talking over or interfering with `/voice`:
 - **Native Claude Voice**: Use `/voice` (runs Claude's native cloud voice cleanly, without any hooks or local TTS collisions).
@@ -188,7 +208,7 @@ claude-agy-voice-engine/
 Clone this repository and run the installer:
 
 ```bash
-git clone https://github.com/<your-username>/claude-agy-voice-engine.git
+git clone https://github.com/guidov/claude-agy-voice-engine.git
 cd claude-agy-voice-engine
 ./install.sh
 ```
