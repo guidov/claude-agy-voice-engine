@@ -50,6 +50,11 @@ chmod +x "$USER_BIN/voicemode-summary"
 cp "$REPO_DIR/hooks/voicemode-stop" "$USER_BIN/voicemode-stop"
 chmod +x "$USER_BIN/voicemode-stop"
 
+# Install master voice-engine switch CLI
+cp "$REPO_DIR/bin/voice-engine" "$USER_BIN/voice-engine"
+chmod +x "$USER_BIN/voice-engine"
+ln -sf "$REPO_DIR/bin/voice-engine" "$REPO_DIR/voice-engine"
+
 # Ensure voicemode CLI launcher exists in ~/.local/bin
 cat << 'EOF' > "$USER_BIN/voicemode"
 #!/usr/bin/env bash
@@ -83,28 +88,15 @@ EOF
 fi
 success "VoiceMode environment configured"
 
-# 4. Antigravity (AGY) Integration
-log "Configuring Antigravity (AGY) skills, hooks, and MCP..."
+# Default to silent completion mode (no unsolicited spoken summaries)
+touch "$HOME/.voicemode/summary-disabled"
+
+# 4. Antigravity (AGY) Integration (Non-interfering mode)
+log "Configuring Antigravity (AGY) skills and MCP server..."
 mkdir -p "$GEMINI_CONFIG_DIR/skills/talk" "$GEMINI_CONFIG_DIR/skills/code" "$GEMINI_CONFIG_DIR/skills/voicemode"
 cp "$REPO_DIR/config/agy/skills/talk/SKILL.md" "$GEMINI_CONFIG_DIR/skills/talk/SKILL.md"
 cp "$REPO_DIR/config/agy/skills/code/SKILL.md" "$GEMINI_CONFIG_DIR/skills/code/SKILL.md"
 cp "$REPO_DIR/config/agy/skills/voicemode/SKILL.md" "$GEMINI_CONFIG_DIR/skills/voicemode/SKILL.md"
-
-# Safely merge hooks.json without clobbering existing user hooks
-if [ -f "$GEMINI_CONFIG_DIR/hooks.json" ]; then
-    python3 -c "
-import json
-with open('$GEMINI_CONFIG_DIR/hooks.json', 'r') as f:
-    dst = json.load(f)
-with open('$REPO_DIR/config/agy/hooks.json', 'r') as f:
-    src = json.load(f)
-dst.update(src)
-with open('$GEMINI_CONFIG_DIR/hooks.json', 'w') as f:
-    json.dump(dst, f, indent=2)
-"
-else
-    cp "$REPO_DIR/config/agy/hooks.json" "$GEMINI_CONFIG_DIR/hooks.json"
-fi
 
 # Safely merge voicemode into mcp_config.json without clobbering other MCP servers
 if [ -f "$GEMINI_CONFIG_DIR/mcp_config.json" ]; then
@@ -122,17 +114,46 @@ with open('$GEMINI_CONFIG_DIR/mcp_config.json', 'w') as f:
 else
     cp "$REPO_DIR/config/agy/mcp_config.json" "$GEMINI_CONFIG_DIR/mcp_config.json"
 fi
-success "Antigravity (AGY) configured"
+
+# Ensure hooks.json is clean (never interrupt turns automatically)
+if [ -f "$GEMINI_CONFIG_DIR/hooks.json" ]; then
+    python3 -c "
+import json
+with open('$GEMINI_CONFIG_DIR/hooks.json', 'r') as f:
+    dst = json.load(f)
+if 'voicemode-summary-speaker' in dst:
+    del dst['voicemode-summary-speaker']
+with open('$GEMINI_CONFIG_DIR/hooks.json', 'w') as f:
+    json.dump(dst, f, indent=2)
+"
+fi
+success "Antigravity (AGY) configured (quiet on completion; active on demand)"
 
 # 5. Claude Code Integration
-log "Configuring Claude Code skills, slash commands, and hooks..."
+log "Configuring Claude Code skills and slash commands..."
 mkdir -p "$CLAUDE_CONFIG_DIR/skills/talk" "$CLAUDE_CONFIG_DIR/skills/code" "$CLAUDE_CONFIG_DIR/skills/voicemode"
 cp "$REPO_DIR/config/claude/skills/talk/SKILL.md" "$CLAUDE_CONFIG_DIR/skills/talk/SKILL.md"
 cp "$REPO_DIR/config/claude/skills/code/SKILL.md" "$CLAUDE_CONFIG_DIR/skills/code/SKILL.md"
 cp "$REPO_DIR/config/claude/skills/voicemode/SKILL.md" "$CLAUDE_CONFIG_DIR/skills/voicemode/SKILL.md"
 cp "$REPO_DIR/config/claude/commands/talk.md" "$CLAUDE_CONFIG_DIR/commands/talk.md"
 cp "$REPO_DIR/config/claude/commands/code.md" "$CLAUDE_CONFIG_DIR/commands/code.md"
-success "Claude Code configured"
+if [ -f "$REPO_DIR/config/claude/commands/localvoice.md" ]; then
+    cp "$REPO_DIR/config/claude/commands/localvoice.md" "$CLAUDE_CONFIG_DIR/commands/localvoice.md"
+fi
+
+# Remove intrusive Stop hook from Claude settings so native /voice is never collided with
+if [ -f "$CLAUDE_CONFIG_DIR/settings.json" ]; then
+    python3 -c "
+import json
+with open('$CLAUDE_CONFIG_DIR/settings.json', 'r') as f:
+    s = json.load(f)
+if 'Stop' in s.get('hooks', {}):
+    del s['hooks']['Stop']
+with open('$CLAUDE_CONFIG_DIR/settings.json', 'w') as f:
+    json.dump(s, f, indent=2)
+"
+fi
+success "Claude Code configured (/localvoice and /talk ready; native /voice isolated)"
 
 # 6. Systemd user services
 log "Installing Systemd user services..."
@@ -153,17 +174,19 @@ echo -e "${GREEN}=========================================================="
 echo "              Installation Complete!                     "
 echo "==========================================================${NC}"
 echo ""
-echo "To manage your services:"
-echo "  systemctl --user restart claude-voice-bridge.service"
-echo "  systemctl --user restart whisper-server.service"
-echo "  systemctl --user restart dictate.service"
+echo "Master Switch Command: 'voice-engine'"
+echo "  voice-engine on          ➔ Turn the entire local engine ON"
+echo "  voice-engine off         ➔ Turn the entire local engine OFF"
+echo "  voice-engine toggle      ➔ Toggle ON/OFF"
+echo "  voice-engine status      ➔ Check diagnostics dashboard"
+echo "  voice-engine summary on  ➔ Enable spoken task completion summaries"
+echo "  voice-engine agy uninstall ➔ Remove integration from Antigravity"
 echo ""
-echo "To verify:"
-echo "  uvx voice-mode status"
-echo "  voicemode-summary status"
-echo ""
-echo "In Claude Code or Antigravity (agy):"
-echo "  Type 'talk' or /talk ➔ Enter continuous hands-free voice mode"
-echo "  Type 'code' or /code ➔ Return to silent coding mode with spoken summary at the end"
-echo "  Hold Right-Ctrl      ➔ Push-to-talk dictation + instant speech cutoff"
+echo "Running Separately from Native /voice:"
+echo "  In Claude Code:"
+echo "    /voice                 ➔ Native Claude Cloud Voice (unhindered, 0% interference)"
+echo "    /localvoice or /talk   ➔ Local Whisper (Intel Arc GPU) + Kokoro TTS"
+echo "  In Antigravity (AGY):"
+echo "    /talk                  ➔ Local two-way voice conversation"
+echo "    Right-Ctrl (Hold)      ➔ Push-to-talk dictation"
 echo ""

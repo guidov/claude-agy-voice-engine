@@ -33,6 +33,7 @@ PID_FILE_PATH = Path.home() / ".voicemode" / "summary_player.pid"
 SUMMARY_WAV_PATH = Path("/tmp/voicemode_summary.wav")
 FALLBACK_MP3_PATH = Path.home() / ".voicemode" / "soundfonts" / "voicemode" / "fallback.mp3"
 DISABLED_SENTINEL = Path.home() / ".voicemode" / "summary-disabled"
+ENGINE_DISABLED_SENTINEL = Path.home() / ".voicemode" / "engine-disabled"
 LOG_PATH = Path.home() / ".voicemode" / "logs" / "summary-speaker.log"
 MAX_SUMMARY_CHARS = int(os.environ.get("VOICEMODE_SUMMARY_MAX_CHARS", "2000"))
 
@@ -258,10 +259,8 @@ def play_audio_with_barge_in(wav_path: Path):
         PID_FILE_PATH.unlink(missing_ok=True)
 
 def main():
-    if DISABLED_SENTINEL.exists():
-        log("Summary TTS disabled via sentinel (~/.voicemode/summary-disabled) - playing completion chime")
-        if FALLBACK_MP3_PATH.exists():
-            subprocess.run(["pw-play", str(FALLBACK_MP3_PATH)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if ENGINE_DISABLED_SENTINEL.exists() or DISABLED_SENTINEL.exists():
+        log("Summary TTS disabled via sentinel - exiting silently")
         return
 
     # Read stdin from Stop hook

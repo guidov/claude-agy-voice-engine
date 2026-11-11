@@ -59,6 +59,11 @@ for arg in "$@"; do
   esac
 done
 
+# Master circuit breaker: if voice-engine is switched off, exit immediately
+if [ -f "$HOME/.voicemode/engine-disabled" ]; then
+  exit 0
+fi
+
 # Quick exit if soundfonts are disabled via sentinel file (circuit breaker)
 if [ -f "$HOME/.voicemode/soundfonts-disabled" ]; then
   [[ -n "${VOICEMODE_HOOK_DEBUG:-}" ]] && echo "[DEBUG] Soundfonts disabled via sentinel file (~/.voicemode/soundfonts-disabled)" >&2
@@ -137,6 +142,9 @@ debug "Processing: event=$EVENT, tool=$TOOL_NAME, subagent=$SUBAGENT_TYPE"
 
 # Handle Stop event: Speak the final summary via Kokoro TTS
 if [[ "$EVENT" == "Stop" ]]; then
+  if [ -f "$HOME/.voicemode/summary-disabled" ] || [ -f "$HOME/.voicemode/engine-disabled" ]; then
+    exit 0
+  fi
   debug "Stop event: invoking voicemode-speak-summary"
   python3 "$HOME/.voicemode/bin/voicemode-speak-summary.py" <<< "${JSON_INPUT:-}" >/dev/null 2>&1 &
   disown 2>/dev/null || true

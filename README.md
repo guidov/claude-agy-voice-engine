@@ -76,14 +76,36 @@ During complex code building, refactoring, and test runs:
 - When the execution loop finishes, the `Stop` lifecycle hook triggers `voicemode-speak-summary.py`.
 - It automatically parses the session transcript (Claude JSONL or AGY JSONL), strips code blocks and Markdown markup into speakable text, and reads the outcome aloud via Kokoro TTS.
 
-### 3. Fast Mode Switch: Quiet Chime vs. Spoken TTS
-Toggle between spoken summaries and quiet completion chimes anytime:
+### 3. Master Engine Switch (`voice-engine`)
+Control all voice services, push-to-talk, summaries, and agent integrations with a single master switch:
 ```bash
-voicemode-summary on       # Kokoro reads final summaries aloud
-voicemode-summary off      # Quiet mode: single completion chime only
-voicemode-summary toggle   # Toggle between voice and chime
-voicemode-summary status   # View current state
+# Master Power Switch
+voice-engine on            # Start whisper, bridge & dictate services
+voice-engine off           # Stop all services and silence all audio immediately
+voice-engine toggle        # Toggle ON / OFF
+voice-engine status        # Display full status dashboard
+
+# Spoken Task Summaries Switch (Default: OFF / Silent)
+voice-engine summary on    # Kokoro reads final summaries aloud
+voice-engine summary off   # Silent mode (no unsolicited speech after tasks)
+
+# Push-to-Talk Daemon Switch
+voice-engine dictate on    # Start Right-Ctrl dictate daemon
+voice-engine dictate off   # Stop Right-Ctrl dictate daemon
+
+# Antigravity (AGY) Integration Switch
+voice-engine agy uninstall # Cleanly remove custom engine from Antigravity
+voice-engine agy enable    # Re-enable Antigravity MCP and skills (quiet mode)
+
+# Claude Code Hook Isolation
+voice-engine claude hooks-off # Ensure Claude native /voice is 100% unhindered
 ```
+
+### 4. Running Cleanly Without Interfering with `/voice`
+Claude Code comes with a built-in `/voice` feature. To prevent the local Whisper/Kokoro engine from talking over or interfering with `/voice`:
+- **Native Claude Voice**: Use `/voice` (runs Claude's native cloud voice cleanly, without any hooks or local TTS collisions).
+- **Custom Local Engine**: Use `/localvoice` or `/talk` (activates the local Intel Arc Whisper STT and Kokoro TTS engine on demand).
+- **Turn Summaries**: Kept **OFF** by default so Kokoro never speaks unsolicited audio when a turn finishes.
 
 ### 4. Deterministic Barge-in & Interruption
 Stop long-winded speech immediately through multiple interfaces:
