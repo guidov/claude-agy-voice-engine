@@ -110,6 +110,8 @@ stop_and_remove_services() {
 remove_binaries() {
     log "Removing CLI launcher tools..."
     rm -f "$USER_BIN/voice-engine"
+    rm -f "$USER_BIN/voice-engine-agy"
+    rm -f "$USER_BIN/voice-engine-claude"
     rm -f "$USER_BIN/voicemode"
     rm -f "$USER_BIN/voicemode-stop"
     rm -f "$USER_BIN/voicemode-summary"

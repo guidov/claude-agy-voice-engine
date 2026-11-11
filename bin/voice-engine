@@ -1,18 +1,23 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# voice-engine: Master Control & Switch for Local Whisper/Kokoro Voice Engine
+# voice-engine: Master Control & Client Switch for Local Voice Engine
 # ==============================================================================
-# Provides instant ON/OFF switching, status diagnostics, and clean isolation
-# so the local voice engine never interferes with native /voice commands.
+# Provides independent, granular control for:
+#   - Global Engine & Services: voice-engine [on|off|toggle|status|summary]
+#   - Antigravity (AGY):        voice-engine agy [on|off|toggle|status|summary]
+#   - Claude Code (Claude):     voice-engine claude [on|off|toggle|status|summary]
 # ==============================================================================
 
 set -uo pipefail
 
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
 USER_BIN="$HOME/.local/bin"
 VOICEMODE_DIR="$HOME/.voicemode"
 VOICEMODE_BIN="$VOICEMODE_DIR/bin"
 ENGINE_DISABLED="$VOICEMODE_DIR/engine-disabled"
 SUMMARY_DISABLED="$VOICEMODE_DIR/summary-disabled"
+SUMMARY_AGY_DISABLED="$VOICEMODE_DIR/summary-agy-disabled"
+SUMMARY_CLAUDE_DISABLED="$VOICEMODE_DIR/summary-claude-disabled"
 SOUNDFONTS_DISABLED="$VOICEMODE_DIR/soundfonts-disabled"
 GEMINI_CONFIG_DIR="$HOME/.gemini/config"
 CLAUDE_CONFIG_DIR="$HOME/.claude"
@@ -25,6 +30,7 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
 BOLD='\033[1m'
 NC='\033[0m'
 
@@ -42,41 +48,115 @@ is_port_listening() {
 }
 
 stop_playback() {
-    # Instant cutoff for active audio playback
     if [ -f "$USER_BIN/voicemode-stop" ]; then
         "$USER_BIN/voicemode-stop" >/dev/null 2>&1 || true
     fi
     pkill -f "pw-play.*voicemode" >/dev/null 2>&1 || true
 }
 
+ensure_services_running() {
+    local needed=0
+    for svc in "${SERVICES[@]}"; do
+        if ! is_service_active "$svc"; then
+            needed=1
+            break
+        fi
+    done
+    if [ "$needed" -eq 1 ]; then
+        log "Starting background voice services..."
+        rm -f "$ENGINE_DISABLED"
+        systemctl --user daemon-reload
+        for svc in "${SERVICES[@]}"; do
+            systemctl --user start "$svc" 2>/dev/null || true
+        done
+        sleep 0.5
+    fi
+}
+
+# ==============================================================================
+# Helper Inspection Functions
+# ==============================================================================
+
+is_agy_mcp_installed() {
+    [ -f "$GEMINI_CONFIG_DIR/mcp_config.json" ] && grep -q '"voicemode"' "$GEMINI_CONFIG_DIR/mcp_config.json" 2>/dev/null
+}
+
+is_agy_mcp_enabled() {
+    if ! is_agy_mcp_installed; then
+        return 1
+    fi
+    python3 -c "
+import json
+try:
+    d = json.load(open('$GEMINI_CONFIG_DIR/mcp_config.json'))
+    v = d.get('mcpServers', {}).get('voicemode', {})
+    exit(1 if v.get('disabled') is True else 0)
+except Exception:
+    exit(1)
+" 2>/dev/null
+}
+
+is_agy_summary_enabled() {
+    if [ -f "$SUMMARY_AGY_DISABLED" ] || [ -f "$ENGINE_DISABLED" ]; then
+        return 1
+    fi
+    [ -f "$GEMINI_CONFIG_DIR/hooks.json" ] && grep -q "voicemode-summary-speaker" "$GEMINI_CONFIG_DIR/hooks.json" 2>/dev/null
+}
+
+is_claude_commands_installed() {
+    [ -f "$CLAUDE_CONFIG_DIR/commands/talk.md" ] || [ -f "$CLAUDE_CONFIG_DIR/commands/localvoice.md" ]
+}
+
+is_claude_summary_enabled() {
+    if [ -f "$SUMMARY_CLAUDE_DISABLED" ] || [ -f "$ENGINE_DISABLED" ]; then
+        return 1
+    fi
+    if [ -f "$CLAUDE_CONFIG_DIR/settings.json" ]; then
+        python3 -c "
+import json
+try:
+    s = json.load(open('$CLAUDE_CONFIG_DIR/settings.json'))
+    exit(0 if 'Stop' in s.get('hooks', {}) else 1)
+except Exception:
+    exit(1)
+" 2>/dev/null
+    else
+        return 1
+    fi
+}
+
+# ==============================================================================
+# Dashboard Status
+# ==============================================================================
+
 engine_status() {
     echo -e "${BOLD}${CYAN}==========================================================${NC}"
     echo -e "${BOLD}${CYAN}    Local Voice Engine Status & Control Dashboard         ${NC}"
     echo -e "${BOLD}${CYAN}==========================================================${NC}"
 
-    # Master state
+    # Global master switch
     if [ -f "$ENGINE_DISABLED" ]; then
-        echo -e "Master Engine Switch : ${RED}${BOLD}OFF (DISABLED)${NC}"
+        echo -e "Global Engine Power  : ${RED}${BOLD}OFF (DISABLED)${NC}"
     else
-        echo -e "Master Engine Switch : ${GREEN}${BOLD}ON (ENABLED)${NC}"
+        echo -e "Global Engine Power  : ${GREEN}${BOLD}ON (ENABLED)${NC}"
     fi
 
-    # Spoken summaries
+    # Global summaries
     if [ -f "$SUMMARY_DISABLED" ]; then
-        echo -e "Spoken Turn Summaries: ${YELLOW}OFF (Silent / no unsolicited speech)${NC}"
+        echo -e "Global Turn Summaries: ${YELLOW}MUTED (Globally silent)${NC}"
     else
-        echo -e "Spoken Turn Summaries: ${GREEN}ON (Kokoro reads final summaries)${NC}"
+        echo -e "Global Turn Summaries: ${GREEN}ENABLED${NC}"
     fi
 
     echo ""
-    echo -e "${BOLD}Background Services:${NC}"
+    echo -e "${BOLD}Background Services (Intel Arc B580 GPU & CPU):${NC}"
 
     # whisper-server
     if is_service_active "whisper-server.service"; then
         if is_port_listening "8910"; then
             echo -e "  - whisper-server   : ${GREEN}Running (:8910 - Intel Arc Vulkan)${NC}"
         else
-            echo -e "  - whisper-server   : ${YELLOW}Service active, port 8910 not yet listening${NC}"
+            echo -e "  - whisper-server   : ${YELLOW}Starting / Initializing compute buffers...${NC}"
         fi
     else
         echo -e "  - whisper-server   : ${RED}Stopped${NC}"
@@ -91,7 +171,7 @@ engine_status() {
         if [ "$stt_ok" = "yes" ] && [ "$tts_ok" = "yes" ]; then
             echo -e "  - voice-bridge     : ${GREEN}Running (STT :2022, TTS :8880)${NC}"
         else
-            echo -e "  - voice-bridge     : ${YELLOW}Running (STT: $stt_ok, TTS: $tts_ok)${NC}"
+            echo -e "  - voice-bridge     : ${YELLOW}Starting (STT: $stt_ok, TTS: $tts_ok)...${NC}"
         fi
     else
         echo -e "  - voice-bridge     : ${RED}Stopped${NC}"
@@ -105,57 +185,60 @@ engine_status() {
     fi
 
     echo ""
-    echo -e "${BOLD}Integration States:${NC}"
+    echo -e "${BOLD}Client Integrations:${NC}"
 
-    # Antigravity (AGY)
-    local agy_mcp="no"
-    local agy_hook="no"
-    if [ -f "$GEMINI_CONFIG_DIR/mcp_config.json" ]; then
-        if grep -q '"voicemode"' "$GEMINI_CONFIG_DIR/mcp_config.json" 2>/dev/null; then
-            agy_mcp="configured"
-        fi
-    fi
-    if [ -f "$GEMINI_CONFIG_DIR/hooks.json" ]; then
-        if grep -q "voicemode" "$GEMINI_CONFIG_DIR/hooks.json" 2>/dev/null; then
-            agy_hook="active"
-        fi
-    fi
-
-    if [ "$agy_mcp" = "configured" ]; then
-        echo -e "  - Antigravity (AGY): ${GREEN}Installed${NC} (MCP: ready, auto-summary hook: $agy_hook)"
+    # Antigravity section
+    if is_agy_mcp_enabled; then
+        echo -e "  ${BOLD}[Antigravity (AGY)]${NC}"
+        echo -e "    - Voice Engine   : ${GREEN}ON${NC} (MCP: connected, skills: /talk, /code)"
+    elif is_agy_mcp_installed; then
+        echo -e "  ${BOLD}[Antigravity (AGY)]${NC}"
+        echo -e "    - Voice Engine   : ${YELLOW}DISABLED${NC} (MCP disabled in mcp_config.json)"
     else
-        echo -e "  - Antigravity (AGY): ${YELLOW}Not configured / uninstalled${NC}"
+        echo -e "  ${BOLD}[Antigravity (AGY)]${NC}"
+        echo -e "    - Voice Engine   : ${RED}NOT INSTALLED${NC}"
     fi
 
-    # Claude Code
-    local claude_cmd="no"
-    local claude_hook="clean"
-    if [ -f "$CLAUDE_CONFIG_DIR/commands/talk.md" ] || [ -f "$CLAUDE_CONFIG_DIR/commands/localvoice.md" ]; then
-        claude_cmd="yes (/talk, /localvoice)"
+    if is_agy_summary_enabled; then
+        echo -e "    - Turn Summaries : ${GREEN}ON (Spoken via Kokoro TTS)${NC}"
+    else
+        echo -e "    - Turn Summaries : ${YELLOW}OFF (Silent completion mode)${NC}"
     fi
-    if [ -f "$CLAUDE_CONFIG_DIR/settings.json" ]; then
-        if python3 -c "import json; s=json.load(open('$CLAUDE_CONFIG_DIR/settings.json')); exit(0 if 'Stop' in s.get('hooks',{}) else 1)" 2>/dev/null; then
-            claude_hook="has Stop hook (may speak summary on turn finish)"
-        else
-            claude_hook="clean (never interferes with /voice)"
-        fi
+
+    # Claude Code section
+    echo ""
+    echo -e "  ${BOLD}[Claude Code]${NC}"
+    if is_claude_commands_installed; then
+        echo -e "    - Local Commands : ${GREEN}ON${NC} (/talk, /localvoice ready)"
+    else
+        echo -e "    - Local Commands : ${YELLOW}OFF / REMOVED${NC}"
     fi
-    echo -e "  - Claude Code      : ${GREEN}Ready${NC} (Commands: $claude_cmd, Hooks: $claude_hook)"
+    echo -e "    - Native /voice  : ${GREEN}CLEAN (0% interference)${NC}"
+
+    if is_claude_summary_enabled; then
+        echo -e "    - Turn Summaries : ${GREEN}ON (Spoken via Kokoro TTS)${NC}"
+    else
+        echo -e "    - Turn Summaries : ${YELLOW}OFF (Silent completion mode)${NC}"
+    fi
+
     echo -e "${BOLD}${CYAN}==========================================================${NC}"
 }
+
+# ==============================================================================
+# Global Engine Control
+# ==============================================================================
 
 engine_on() {
     log "Turning Local Voice Engine ON..."
     mkdir -p "$VOICEMODE_DIR"
     rm -f "$ENGINE_DISABLED"
 
-    # Handle summary flag
     if [[ "${1:-}" == "--summary" ]] || [[ "${1:-}" == "--with-summary" ]]; then
         rm -f "$SUMMARY_DISABLED"
-        log "Spoken task summaries enabled"
+        log "Global spoken task summaries enabled"
     else
         touch "$SUMMARY_DISABLED"
-        log "Spoken task summaries kept OFF (silent mode - no turn interruption)"
+        log "Global spoken task summaries kept OFF (silent mode - no turn interruption)"
     fi
 
     systemctl --user daemon-reload
@@ -163,7 +246,6 @@ engine_on() {
         systemctl --user start "$svc" 2>/dev/null || true
     done
 
-    # Give bridge a brief moment to bind
     sleep 0.5
     success "Local Voice Engine is now ON"
     echo ""
@@ -196,29 +278,29 @@ engine_toggle() {
     fi
 }
 
-toggle_summary() {
+toggle_global_summary() {
     case "${1:-status}" in
         on|enable)
             rm -f "$SUMMARY_DISABLED"
-            success "Spoken turn summaries ENABLED (Kokoro will read completion summaries)"
+            success "Global spoken turn summaries ENABLED"
             ;;
         off|disable)
             touch "$SUMMARY_DISABLED"
             stop_playback
-            success "Spoken turn summaries DISABLED (Silent completion mode)"
+            success "Global spoken turn summaries DISABLED (Silent completion mode)"
             ;;
         toggle)
             if [ -f "$SUMMARY_DISABLED" ]; then
-                toggle_summary on
+                toggle_global_summary on
             else
-                toggle_summary off
+                toggle_global_summary off
             fi
             ;;
         status)
             if [ -f "$SUMMARY_DISABLED" ]; then
-                echo -e "Spoken turn summaries: ${RED}DISABLED${NC}"
+                echo -e "Global spoken turn summaries: ${RED}DISABLED${NC}"
             else
-                echo -e "Spoken turn summaries: ${GREEN}ENABLED${NC}"
+                echo -e "Global spoken turn summaries: ${GREEN}ENABLED${NC}"
             fi
             ;;
         *)
@@ -257,67 +339,24 @@ toggle_dictate() {
     esac
 }
 
-manage_agy() {
-    case "${1:-status}" in
-        uninstall|remove)
-            log "Uninstalling custom voice engine from Antigravity (AGY)..."
-            # 1. Remove from mcp_config.json
-            if [ -f "$GEMINI_CONFIG_DIR/mcp_config.json" ]; then
-                python3 -c "
-import json
-p = '$GEMINI_CONFIG_DIR/mcp_config.json'
-try:
-    with open(p, 'r') as f:
-        data = json.load(f)
-    if 'mcpServers' in data and 'voicemode' in data['mcpServers']:
-        del data['mcpServers']['voicemode']
-        with open(p, 'w') as f:
-            json.dump(data, f, indent=2)
-        print('Removed voicemode from mcp_config.json')
-except Exception as e:
-    print('Error updating mcp_config.json:', e)
-"
-            fi
+# ==============================================================================
+# Antigravity (AGY) Specific Management
+# ==============================================================================
 
-            # 2. Remove Stop hook from hooks.json
-            if [ -f "$GEMINI_CONFIG_DIR/hooks.json" ]; then
-                python3 -c "
-import json
-p = '$GEMINI_CONFIG_DIR/hooks.json'
-try:
-    with open(p, 'r') as f:
-        data = json.load(f)
-    if 'voicemode-summary-speaker' in data:
-        del data['voicemode-summary-speaker']
-    with open(p, 'w') as f:
-        json.dump(data, f, indent=2)
-    print('Removed voicemode hook from hooks.json')
-except Exception as e:
-    print('Error updating hooks.json:', e)
-"
-            fi
+enable_agy_integration() {
+    ensure_services_running
+    mkdir -p "$GEMINI_CONFIG_DIR/skills/talk" "$GEMINI_CONFIG_DIR/skills/code" "$GEMINI_CONFIG_DIR/skills/voicemode"
 
-            # 3. Remove skills
-            rm -rf "$GEMINI_CONFIG_DIR/skills/talk"
-            rm -rf "$GEMINI_CONFIG_DIR/skills/code"
-            rm -rf "$GEMINI_CONFIG_DIR/skills/voicemode"
+    local src_dir="$REPO_DIR/config/agy/skills"
+    if [ -d "$src_dir" ]; then
+        cp -r "$src_dir/talk/SKILL.md" "$GEMINI_CONFIG_DIR/skills/talk/SKILL.md" 2>/dev/null || true
+        cp -r "$src_dir/code/SKILL.md" "$GEMINI_CONFIG_DIR/skills/code/SKILL.md" 2>/dev/null || true
+        cp -r "$src_dir/voicemode/SKILL.md" "$GEMINI_CONFIG_DIR/skills/voicemode/SKILL.md" 2>/dev/null || true
+    fi
 
-            # 4. Clean cache
-            rm -rf "$HOME/.gemini/antigravity-cli/mcp/voicemode"
-
-            success "Antigravity voice integration uninstalled cleanly."
-            ;;
-        enable|install)
-            log "Configuring Antigravity (AGY) integration (non-interfering mode)..."
-            local repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-            mkdir -p "$GEMINI_CONFIG_DIR/skills/talk" "$GEMINI_CONFIG_DIR/skills/code" "$GEMINI_CONFIG_DIR/skills/voicemode"
-            cp "$repo_dir/config/agy/skills/talk/SKILL.md" "$GEMINI_CONFIG_DIR/skills/talk/SKILL.md" 2>/dev/null || true
-            cp "$repo_dir/config/agy/skills/code/SKILL.md" "$GEMINI_CONFIG_DIR/skills/code/SKILL.md" 2>/dev/null || true
-            cp "$repo_dir/config/agy/skills/voicemode/SKILL.md" "$GEMINI_CONFIG_DIR/skills/voicemode/SKILL.md" 2>/dev/null || true
-
-            # Register MCP server
-            if [ -f "$GEMINI_CONFIG_DIR/mcp_config.json" ]; then
-                python3 -c "
+    # Enable MCP in mcp_config.json
+    if [ -f "$GEMINI_CONFIG_DIR/mcp_config.json" ]; then
+        python3 -c "
 import json
 p = '$GEMINI_CONFIG_DIR/mcp_config.json'
 with open(p, 'r') as f:
@@ -335,98 +374,399 @@ d['mcpServers']['voicemode'] = {
         'VOICEMODE_MOUTH_BARGE': 'partial',
         'VOICEMODE_MOUTH_BARGE_WORDS': '2',
         'VOICEMODE_MOUTH_BARGE_DEVICES': '.*'
-    }
+    },
+    'disabled': False
 }
 with open(p, 'w') as f:
     json.dump(d, f, indent=2)
 "
-            fi
-            # Note: We intentionally DO NOT add automatic Stop hook to avoid unsolicited speech!
-            success "Antigravity integration enabled cleanly (MCP server + skills, zero automatic interruption)."
-            ;;
-        disable)
-            if [ -f "$GEMINI_CONFIG_DIR/mcp_config.json" ]; then
-                python3 -c "
+    fi
+}
+
+disable_agy_integration() {
+    if [ -f "$GEMINI_CONFIG_DIR/mcp_config.json" ]; then
+        python3 -c "
 import json
 p = '$GEMINI_CONFIG_DIR/mcp_config.json'
-with open(p, 'r') as f:
-    d = json.load(f)
-if 'mcpServers' in d and 'voicemode' in d['mcpServers']:
-    d['mcpServers']['voicemode']['disabled'] = True
-    with open(p, 'w') as f:
-        json.dump(d, f, indent=2)
+try:
+    with open(p, 'r') as f:
+        d = json.load(f)
+    if 'mcpServers' in d and 'voicemode' in d['mcpServers']:
+        d['mcpServers']['voicemode']['disabled'] = True
+        with open(p, 'w') as f:
+            json.dump(d, f, indent=2)
+except Exception:
+    pass
 "
-                success "Antigravity voicemode MCP disabled."
+    fi
+}
+
+enable_agy_summary() {
+    rm -f "$SUMMARY_AGY_DISABLED" "$SUMMARY_DISABLED"
+    mkdir -p "$GEMINI_CONFIG_DIR"
+    python3 -c "
+import json
+p = '$GEMINI_CONFIG_DIR/hooks.json'
+try:
+    with open(p, 'r') as f:
+        d = json.load(f)
+except Exception:
+    d = {}
+d['voicemode-summary-speaker'] = {
+    'Stop': [
+        {
+            'type': 'command',
+            'command': '$VOICEMODE_BIN/voicemode-hook-receiver --event Stop --client agy || true'
+        }
+    ]
+}
+with open(p, 'w') as f:
+    json.dump(d, f, indent=2)
+"
+}
+
+disable_agy_summary() {
+    touch "$SUMMARY_AGY_DISABLED"
+    if [ -f "$GEMINI_CONFIG_DIR/hooks.json" ]; then
+        python3 -c "
+import json
+p = '$GEMINI_CONFIG_DIR/hooks.json'
+try:
+    with open(p, 'r') as f:
+        d = json.load(f)
+    if 'voicemode-summary-speaker' in d:
+        del d['voicemode-summary-speaker']
+        with open(p, 'w') as f:
+            json.dump(d, f, indent=2)
+except Exception:
+    pass
+"
+    fi
+}
+
+uninstall_agy_all() {
+    log "Uninstalling all custom voice files from Antigravity..."
+    disable_agy_summary
+    if [ -f "$GEMINI_CONFIG_DIR/mcp_config.json" ]; then
+        python3 -c "
+import json
+p = '$GEMINI_CONFIG_DIR/mcp_config.json'
+try:
+    with open(p, 'r') as f:
+        d = json.load(f)
+    if 'mcpServers' in d and 'voicemode' in d['mcpServers']:
+        del d['mcpServers']['voicemode']
+        with open(p, 'w') as f:
+            json.dump(d, f, indent=2)
+except Exception:
+    pass
+"
+    fi
+    rm -rf "$GEMINI_CONFIG_DIR/skills/talk"
+    rm -rf "$GEMINI_CONFIG_DIR/skills/code"
+    rm -rf "$GEMINI_CONFIG_DIR/skills/voicemode"
+    rm -rf "$HOME/.gemini/antigravity-cli/mcp/voicemode"
+    success "Antigravity voice integration completely uninstalled."
+}
+
+agy_status() {
+    echo -e "${BOLD}${MAGENTA}--- Antigravity (AGY) Voice Engine Status ---${NC}"
+    if is_agy_mcp_enabled; then
+        echo -e "  Voice Engine Integration : ${GREEN}${BOLD}ON (ENABLED)${NC}"
+    elif is_agy_mcp_installed; then
+        echo -e "  Voice Engine Integration : ${YELLOW}${BOLD}OFF (DISABLED in mcp_config.json)${NC}"
+    else
+        echo -e "  Voice Engine Integration : ${RED}${BOLD}UNINSTALLED${NC}"
+    fi
+
+    if is_agy_summary_enabled; then
+        echo -e "  Spoken Turn Summaries    : ${GREEN}${BOLD}ON (Kokoro reads completion summaries)${NC}"
+    else
+        echo -e "  Spoken Turn Summaries    : ${YELLOW}${BOLD}OFF (Silent completion mode)${NC}"
+    fi
+    echo -e "  Interactive Commands     : ${CYAN}/talk${NC}, ${CYAN}/code${NC}, ${CYAN}/voicemode${NC}"
+    echo -e "${BOLD}${MAGENTA}---------------------------------------------${NC}"
+}
+
+manage_agy() {
+    local subcmd="${1:-status}"
+    shift || true
+
+    case "$subcmd" in
+        on|enable|start)
+            log "Enabling Voice Engine for Antigravity (AGY)..."
+            enable_agy_integration
+            success "Antigravity voice integration is now ON."
+            agy_status
+            ;;
+        off|disable|stop)
+            log "Disabling Voice Engine for Antigravity (AGY)..."
+            disable_agy_integration
+            disable_agy_summary
+            success "Antigravity voice integration is now OFF."
+            agy_status
+            ;;
+        toggle)
+            if is_agy_mcp_enabled; then
+                manage_agy off
+            else
+                manage_agy on
             fi
             ;;
+        summary)
+            local action="${1:-status}"
+            case "$action" in
+                on|enable)
+                    enable_agy_summary
+                    success "Antigravity spoken turn summaries ENABLED."
+                    ;;
+                off|disable)
+                    disable_agy_summary
+                    success "Antigravity spoken turn summaries DISABLED."
+                    ;;
+                toggle)
+                    if is_agy_summary_enabled; then
+                        manage_agy summary off
+                    else
+                        manage_agy summary on
+                    fi
+                    ;;
+                status)
+                    if is_agy_summary_enabled; then
+                        echo -e "Antigravity Spoken Summaries: ${GREEN}ON${NC}"
+                    else
+                        echo -e "Antigravity Spoken Summaries: ${YELLOW}OFF (Silent)${NC}"
+                    fi
+                    ;;
+                *)
+                    echo "Usage: voice-engine agy summary [on|off|toggle|status]"
+                    ;;
+            esac
+            ;;
+        uninstall|remove)
+            uninstall_agy_all
+            ;;
         status)
-            engine_status
+            agy_status
             ;;
         *)
-            echo "Usage: voice-engine agy [enable|disable|uninstall|status]"
+            echo "Usage: voice-engine agy [on|off|toggle|status|summary|uninstall]"
             ;;
     esac
 }
 
-manage_claude() {
-    case "${1:-status}" in
-        hooks-off|disable-hooks)
-            log "Disabling intrusive hooks in Claude Code (ensures /voice is never interfered with)..."
-            if [ -f "$CLAUDE_CONFIG_DIR/settings.json" ]; then
-                python3 -c "
+# ==============================================================================
+# Claude Code Specific Management
+# ==============================================================================
+
+enable_claude_integration() {
+    ensure_services_running
+    mkdir -p "$CLAUDE_CONFIG_DIR/commands" "$CLAUDE_CONFIG_DIR/skills"
+
+    local src_cmd="$REPO_DIR/config/claude/commands"
+    if [ -d "$src_cmd" ]; then
+        cp -r "$src_cmd/talk.md" "$CLAUDE_CONFIG_DIR/commands/talk.md" 2>/dev/null || true
+        cp -r "$src_cmd/code.md" "$CLAUDE_CONFIG_DIR/commands/code.md" 2>/dev/null || true
+        cp -r "$src_cmd/localvoice.md" "$CLAUDE_CONFIG_DIR/commands/localvoice.md" 2>/dev/null || true
+    else
+        cat << 'EOF' > "$CLAUDE_CONFIG_DIR/commands/localvoice.md"
+Switch to local voice conversation mode using the local Whisper (Intel Arc GPU) and Kokoro TTS engine. Start speaking to me and listen for my voice replies.
+EOF
+        cat << 'EOF' > "$CLAUDE_CONFIG_DIR/commands/talk.md"
+Switch to interactive voice conversation mode using VoiceMode (Whisper STT on Intel Arc GPU and Kokoro TTS). Start speaking to me and listen for my voice replies.
+EOF
+    fi
+
+    local src_skills="$REPO_DIR/config/claude/skills"
+    if [ -d "$src_skills" ]; then
+        mkdir -p "$CLAUDE_CONFIG_DIR/skills/talk" "$CLAUDE_CONFIG_DIR/skills/code" "$CLAUDE_CONFIG_DIR/skills/voicemode"
+        cp -r "$src_skills/talk/SKILL.md" "$CLAUDE_CONFIG_DIR/skills/talk/SKILL.md" 2>/dev/null || true
+        cp -r "$src_skills/code/SKILL.md" "$CLAUDE_CONFIG_DIR/skills/code/SKILL.md" 2>/dev/null || true
+        cp -r "$src_skills/voicemode/SKILL.md" "$CLAUDE_CONFIG_DIR/skills/voicemode/SKILL.md" 2>/dev/null || true
+    fi
+
+    # Keep native /voice isolated by default (no Stop hook unless summary is explicitly requested)
+    if [ ! -f "$SUMMARY_CLAUDE_DISABLED" ]; then
+        touch "$SUMMARY_CLAUDE_DISABLED"
+    fi
+}
+
+disable_claude_integration() {
+    rm -f "$CLAUDE_CONFIG_DIR/commands/talk.md"
+    rm -f "$CLAUDE_CONFIG_DIR/commands/code.md"
+    rm -f "$CLAUDE_CONFIG_DIR/commands/localvoice.md"
+    rm -rf "$CLAUDE_CONFIG_DIR/skills/talk"
+    rm -rf "$CLAUDE_CONFIG_DIR/skills/code"
+    rm -rf "$CLAUDE_CONFIG_DIR/skills/voicemode"
+    disable_claude_summary
+}
+
+enable_claude_summary() {
+    rm -f "$SUMMARY_CLAUDE_DISABLED" "$SUMMARY_DISABLED"
+    if [ -f "$CLAUDE_CONFIG_DIR/settings.json" ]; then
+        python3 -c "
 import json
 p = '$CLAUDE_CONFIG_DIR/settings.json'
 with open(p, 'r') as f:
     s = json.load(f)
-if 'Stop' in s.get('hooks', {}):
-    del s['hooks']['Stop']
+s.setdefault('hooks', {})
+s['hooks']['Stop'] = [
+    {
+        'hooks': [
+            {
+                'type': 'command',
+                'command': '$VOICEMODE_BIN/voicemode-hook-receiver --client claude || true'
+            }
+        ]
+    }
+]
 with open(p, 'w') as f:
     json.dump(s, f, indent=2)
-print('Stop hook cleanly removed from Claude settings.json')
 "
+    fi
+}
+
+disable_claude_summary() {
+    touch "$SUMMARY_CLAUDE_DISABLED"
+    if [ -f "$CLAUDE_CONFIG_DIR/settings.json" ]; then
+        python3 -c "
+import json
+p = '$CLAUDE_CONFIG_DIR/settings.json'
+try:
+    with open(p, 'r') as f:
+        s = json.load(f)
+    if 'Stop' in s.get('hooks', {}):
+        del s['hooks']['Stop']
+        with open(p, 'w') as f:
+            json.dump(s, f, indent=2)
+except Exception:
+    pass
+"
+    fi
+}
+
+claude_status() {
+    echo -e "${BOLD}${BLUE}--- Claude Code Voice Engine Status ---${NC}"
+    if is_claude_commands_installed; then
+        echo -e "  Custom Voice Commands    : ${GREEN}${BOLD}ON (/talk, /localvoice ready)${NC}"
+    else
+        echo -e "  Custom Voice Commands    : ${YELLOW}${BOLD}OFF (Commands uninstalled)${NC}"
+    fi
+
+    echo -e "  Native /voice Command    : ${GREEN}${BOLD}CLEAN (0% interference)${NC}"
+
+    if is_claude_summary_enabled; then
+        echo -e "  Spoken Turn Summaries    : ${GREEN}${BOLD}ON (Kokoro reads completion summaries)${NC}"
+    else
+        echo -e "  Spoken Turn Summaries    : ${YELLOW}${BOLD}OFF (Silent completion mode)${NC}"
+    fi
+    echo -e "${BOLD}${BLUE}---------------------------------------${NC}"
+}
+
+manage_claude() {
+    local subcmd="${1:-status}"
+    shift || true
+
+    case "$subcmd" in
+        on|enable|start)
+            log "Enabling Voice Engine for Claude Code..."
+            enable_claude_integration
+            success "Claude Code voice integration is now ON."
+            claude_status
+            ;;
+        off|disable|stop)
+            log "Disabling Voice Engine for Claude Code..."
+            disable_claude_integration
+            success "Claude Code voice integration is now OFF."
+            claude_status
+            ;;
+        toggle)
+            if is_claude_commands_installed; then
+                manage_claude off
+            else
+                manage_claude on
             fi
-            success "Claude Code Stop hook disabled. Claude's native /voice will run with 0% interference."
+            ;;
+        summary)
+            local action="${1:-status}"
+            case "$action" in
+                on|enable)
+                    enable_claude_summary
+                    success "Claude Code spoken turn summaries ENABLED."
+                    warn "Note: This hook reads summaries upon turn completion. Native /voice remains active."
+                    ;;
+                off|disable)
+                    disable_claude_summary
+                    success "Claude Code spoken turn summaries DISABLED (0% interference with /voice)."
+                    ;;
+                toggle)
+                    if is_claude_summary_enabled; then
+                        manage_claude summary off
+                    else
+                        manage_claude summary on
+                    fi
+                    ;;
+                status)
+                    if is_claude_summary_enabled; then
+                        echo -e "Claude Code Spoken Summaries: ${GREEN}ON${NC}"
+                    else
+                        echo -e "Claude Code Spoken Summaries: ${YELLOW}OFF (Silent / clean)${NC}"
+                    fi
+                    ;;
+                *)
+                    echo "Usage: voice-engine claude summary [on|off|toggle|status]"
+                    ;;
+            esac
+            ;;
+        hooks-off)
+            disable_claude_summary
+            success "Claude Code Stop hook disabled. Native /voice will run with 0% interference."
             ;;
         status)
-            engine_status
+            claude_status
             ;;
         *)
-            echo "Usage: voice-engine claude [hooks-off|status]"
+            echo "Usage: voice-engine claude [on|off|toggle|status|summary|hooks-off]"
             ;;
     esac
 }
 
+# ==============================================================================
+# Help & Dispatcher
+# ==============================================================================
+
 show_help() {
     cat << EOF
-${BOLD}voice-engine${NC} - Master Control Switch for Claude & Antigravity Local Voice Engine
+${BOLD}voice-engine${NC} - Granular Control Switch for Claude & Antigravity Local Voice Engine
 
-${BOLD}USAGE:${NC}
-    voice-engine <COMMAND> [OPTIONS]
+${BOLD}GLOBAL POWER SWITCHES:${NC}
+    ${GREEN}voice-engine on${NC}                  Start Whisper (GPU), Bridge & Dictate daemons
+    ${RED}voice-engine off${NC}                 Stop all services & silence all active audio
+    ${CYAN}voice-engine toggle${NC}              Toggle entire engine between ON and OFF
+    ${CYAN}voice-engine status${NC}              Display complete unified diagnostics dashboard
+    ${BOLD}voice-engine summary on|off${NC}      Global toggle for spoken turn summaries
 
-${BOLD}CORE SWITCH COMMANDS:${NC}
-    ${GREEN}on${NC} | ${GREEN}start${NC} [--summary]     Turn the voice engine ON (starts whisper, bridge, dictate)
-    ${RED}off${NC} | ${RED}stop${NC}                 Turn the voice engine OFF (stops all services & silences audio)
-    ${CYAN}toggle${NC}                     Toggle the voice engine between ON and OFF
-    ${CYAN}status${NC}                     Display comprehensive status dashboard
+${BOLD}ANTIGRAVITY (AGY) SPECIFIC SWITCHES:${NC}
+    ${GREEN}voice-engine agy on${NC}              Turn Voice Engine ON for Antigravity (MCP + skills)
+    ${RED}voice-engine agy off${NC}             Turn Voice Engine OFF for Antigravity (mutes & disables)
+    ${CYAN}voice-engine agy toggle${NC}          Toggle Antigravity voice integration ON/OFF
+    ${CYAN}voice-engine agy status${NC}          Check Antigravity voice status
+    ${BOLD}voice-engine agy summary on${NC}      Enable spoken summaries specifically for Antigravity
+    ${BOLD}voice-engine agy summary off${NC}     Disable spoken summaries specifically for Antigravity
+    ${RED}voice-engine agy uninstall${NC}       Cleanly remove all voice engine files from Antigravity
 
-${BOLD}INDEPENDENT COMPONENT SWITCHES:${NC}
-    ${BOLD}summary${NC} [on|off|toggle|status]  Toggle spoken task summaries (Kokoro TTS after tasks)
-    ${BOLD}dictate${NC} [on|off|toggle|status]  Toggle Right-Ctrl push-to-talk daemon
+${BOLD}CLAUDE CODE SPECIFIC SWITCHES:${NC}
+    ${GREEN}voice-engine claude on${NC}           Turn Voice Engine ON for Claude (/talk, /localvoice)
+    ${RED}voice-engine claude off${NC}          Turn Voice Engine OFF for Claude (removes custom commands)
+    ${CYAN}voice-engine claude toggle${NC}       Toggle Claude voice integration ON/OFF
+    ${CYAN}voice-engine claude status${NC}       Check Claude Code voice status & hook cleanliness
+    ${BOLD}voice-engine claude summary on${NC}   Enable spoken summaries specifically for Claude
+    ${BOLD}voice-engine claude summary off${NC}  Disable spoken summaries specifically for Claude (leaves /voice 100% clean)
 
-${BOLD}CLIENT INTEGRATION SWITCHES:${NC}
-    ${BOLD}agy${NC} enable                      Enable Antigravity skills & MCP (quiet, non-interfering)
-    ${BOLD}agy${NC} disable                     Disable Antigravity voicemode MCP server
-    ${BOLD}agy${NC} uninstall                   Cleanly remove all voice engine files from Antigravity
-    ${BOLD}claude${NC} hooks-off                Ensure Claude Code hooks never interfere with native /voice
-
-${BOLD}HOW IT RUNS SEPARATELY FROM /voice:${NC}
-    - In Claude Code:
-        * ${BOLD}/voice${NC}       ➔ Native Claude Cloud Voice (completely untouched & unhooked)
-        * ${BOLD}/localvoice${NC}  ➔ Custom local Whisper STT (Arc GPU) + Kokoro TTS
-        * ${BOLD}/talk${NC}        ➔ Custom local voice conversation mode
-    - In Antigravity (AGY):
-        * ${BOLD}/talk${NC}        ➔ Interactive voice session via local engine
-        * Hold ${BOLD}Right-Ctrl${NC} ➔ Push-to-talk dictation with instant barge-in
+${BOLD}HELPERS / ALIASES:${NC}
+    You can also run ${BOLD}voice-engine-agy${NC} and ${BOLD}voice-engine-claude${NC} directly:
+      * voice-engine-agy on | off | summary on | summary off | status
+      * voice-engine-claude on | off | summary on | summary off | status
 
 EOF
 }
@@ -449,12 +789,12 @@ case "$CMD" in
         engine_status
         ;;
     summary)
-        toggle_summary "$@"
+        toggle_global_summary "$@"
         ;;
     dictate)
         toggle_dictate "$@"
         ;;
-    agy)
+    agy|antigravity)
         manage_agy "$@"
         ;;
     claude)

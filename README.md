@@ -77,28 +77,50 @@ During complex code building, refactoring, and test runs:
 - It automatically parses the session transcript (Claude JSONL or AGY JSONL), strips code blocks and Markdown markup into speakable text, and reads the outcome aloud via Kokoro TTS.
 
 ### 3. Master Engine Switch (`voice-engine`)
-Control all voice services, push-to-talk, summaries, and agent integrations with a single master switch:
+Control all voice services, push-to-talk, summaries, and agent integrations with unified or client-specific switches:
+
 ```bash
-# Master Power Switch
-voice-engine on            # Start whisper, bridge & dictate services
-voice-engine off           # Stop all services and silence all audio immediately
-voice-engine toggle        # Toggle ON / OFF
-voice-engine status        # Display full status dashboard
+# ----------------------------------------------------
+# 1. Antigravity (AGY) Specific Switches
+# ----------------------------------------------------
+voice-engine agy on             # Turn voice engine ON for Antigravity (MCP + skills)
+voice-engine agy off            # Turn voice engine OFF for Antigravity (disables MCP)
+voice-engine agy toggle         # Toggle Antigravity voice integration ON/OFF
+voice-engine agy status         # Check Antigravity voice status
+voice-engine agy summary on     # Turn spoken summaries ON for Antigravity
+voice-engine agy summary off    # Turn spoken summaries OFF for Antigravity (silent)
+voice-engine agy uninstall      # Cleanly remove all custom voice files from AGY
 
-# Spoken Task Summaries Switch (Default: OFF / Silent)
-voice-engine summary on    # Kokoro reads final summaries aloud
-voice-engine summary off   # Silent mode (no unsolicited speech after tasks)
+# Or use the direct shortcut:
+voice-engine-agy [on|off|toggle|status|summary on|summary off]
 
-# Push-to-Talk Daemon Switch
-voice-engine dictate on    # Start Right-Ctrl dictate daemon
-voice-engine dictate off   # Stop Right-Ctrl dictate daemon
+# ----------------------------------------------------
+# 2. Claude Code Specific Switches
+# ----------------------------------------------------
+voice-engine claude on          # Turn voice engine ON for Claude (/talk, /localvoice)
+voice-engine claude off         # Turn voice engine OFF for Claude (removes commands)
+voice-engine claude toggle      # Toggle Claude voice integration ON/OFF
+voice-engine claude status      # Check Claude Code voice status & hook cleanliness
+voice-engine claude summary on  # Turn spoken summaries ON for Claude Code
+voice-engine claude summary off # Turn spoken summaries OFF (leaves /voice 100% clean)
+voice-engine claude hooks-off   # Ensure Stop hook is removed so native /voice is clean
 
-# Antigravity (AGY) Integration Switch
-voice-engine agy uninstall # Cleanly remove custom engine from Antigravity
-voice-engine agy enable    # Re-enable Antigravity MCP and skills (quiet mode)
+# Or use the direct shortcut:
+voice-engine-claude [on|off|toggle|status|summary on|summary off]
 
-# Claude Code Hook Isolation
-voice-engine claude hooks-off # Ensure Claude native /voice is 100% unhindered
+# ----------------------------------------------------
+# 3. Global Power & Hardware Service Switches
+# ----------------------------------------------------
+voice-engine on                 # Start Whisper (GPU), Voice Bridge & Dictate daemons
+voice-engine off                # Stop all background services and kill active audio
+voice-engine toggle             # Toggle all services ON / OFF
+voice-engine status             # Display unified diagnostics dashboard
+voice-engine summary on         # Turn spoken summaries ON globally
+voice-engine summary off        # Turn spoken summaries OFF globally (silent)
+
+# Push-to-Talk Dictation Switch
+voice-engine dictate on         # Start Right-Ctrl dictate daemon
+voice-engine dictate off        # Stop Right-Ctrl dictate daemon
 ```
 
 ### 4. Running Cleanly Without Interfering with `/voice`
@@ -224,24 +246,22 @@ export KOKORO_VOICES_PATH="/path/to/voices-v1.0.bin"
 - Type **`/code`** ➔ Switches back to coding mode.
 - Hold **Right-Ctrl** ➔ Dictate prompts directly at the cursor via `dictate.service`.
 
-### Controlling the Voice Engine:
+### Controlling the Voice Engine (Global & Per-Client):
 ```bash
-# Power on/off
-voice-engine on            # Turn entire voice engine ON
-voice-engine off           # Turn entire voice engine OFF (stops background services & audio)
-voice-engine toggle        # Toggle ON / OFF
-voice-engine status        # Check diagnostics dashboard
+# Global Engine Control
+voice-engine on                 # Turn entire voice engine ON
+voice-engine off                # Turn entire voice engine OFF (stops background services & audio)
+voice-engine status             # Check diagnostics dashboard
+voice-engine stop               # Halts active audio playback immediately
 
-# Turn summaries (Default: OFF / Silent)
-voice-engine summary on    # Kokoro reads final turn summaries aloud
-voice-engine summary off   # Silent mode (no completion speech)
+# Per-Client Controls (or use voice-engine-agy / voice-engine-claude shortcuts)
+voice-engine agy on             # Enable voice engine in Antigravity
+voice-engine agy off            # Disable voice engine in Antigravity
+voice-engine agy summary on|off # Toggle spoken summaries in Antigravity
 
-# Push-to-Talk Daemon
-voice-engine dictate on    # Start Right-Ctrl dictate daemon
-voice-engine dictate off   # Stop Right-Ctrl dictate daemon
-
-# Instant cutoff
-voice-engine stop          # Halts active audio playback immediately
+voice-engine claude on          # Enable voice engine in Claude Code
+voice-engine claude off         # Disable voice engine in Claude Code
+voice-engine claude summary on|off # Toggle spoken summaries in Claude Code
 ```
 
 ---

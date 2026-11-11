@@ -50,10 +50,22 @@ chmod +x "$USER_BIN/voicemode-summary"
 cp "$REPO_DIR/hooks/voicemode-stop" "$USER_BIN/voicemode-stop"
 chmod +x "$USER_BIN/voicemode-stop"
 
-# Install master voice-engine switch CLI
+# Install master voice-engine switch CLI & client shortcuts
 cp "$REPO_DIR/bin/voice-engine" "$USER_BIN/voice-engine"
 chmod +x "$USER_BIN/voice-engine"
 ln -sf "$REPO_DIR/bin/voice-engine" "$REPO_DIR/voice-engine"
+
+cat << 'EOF' > "$USER_BIN/voice-engine-agy"
+#!/usr/bin/env bash
+exec voice-engine agy "$@"
+EOF
+chmod +x "$USER_BIN/voice-engine-agy"
+
+cat << 'EOF' > "$USER_BIN/voice-engine-claude"
+#!/usr/bin/env bash
+exec voice-engine claude "$@"
+EOF
+chmod +x "$USER_BIN/voice-engine-claude"
 
 # Ensure voicemode CLI launcher exists in ~/.local/bin
 cat << 'EOF' > "$USER_BIN/voicemode"

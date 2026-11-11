@@ -81,9 +81,14 @@ debug() {
 TOOL_NAME=""
 EVENT=""
 SUBAGENT_TYPE=""
+CLIENT=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+  --client)
+    CLIENT="$2"
+    shift 2
+    ;;
   --tool-name)
     TOOL_NAME="$2"
     shift 2
@@ -145,7 +150,21 @@ if [[ "$EVENT" == "Stop" ]]; then
   if [ -f "$HOME/.voicemode/summary-disabled" ] || [ -f "$HOME/.voicemode/engine-disabled" ]; then
     exit 0
   fi
-  debug "Stop event: invoking voicemode-speak-summary"
+  # Determine client if not explicitly passed
+  if [[ -z "$CLIENT" && -n "${JSON_INPUT:-}" ]]; then
+    if echo "$JSON_INPUT" | grep -q '"transcript_path"'; then
+      CLIENT="claude"
+    else
+      CLIENT="agy"
+    fi
+  fi
+  if [[ "$CLIENT" == "agy" ]] && [ -f "$HOME/.voicemode/summary-agy-disabled" ]; then
+    exit 0
+  fi
+  if [[ "$CLIENT" == "claude" ]] && [ -f "$HOME/.voicemode/summary-claude-disabled" ]; then
+    exit 0
+  fi
+  debug "Stop event ($CLIENT): invoking voicemode-speak-summary"
   python3 "$HOME/.voicemode/bin/voicemode-speak-summary.py" <<< "${JSON_INPUT:-}" >/dev/null 2>&1 &
   disown 2>/dev/null || true
   exit 0
