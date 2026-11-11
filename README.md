@@ -107,13 +107,13 @@ Claude Code comes with a built-in `/voice` feature. To prevent the local Whisper
 - **Custom Local Engine**: Use `/localvoice` or `/talk` (activates the local Intel Arc Whisper STT and Kokoro TTS engine on demand).
 - **Turn Summaries**: Kept **OFF** by default so Kokoro never speaks unsolicited audio when a turn finishes.
 
-### 4. Deterministic Barge-in & Interruption
+### 5. Deterministic Barge-in & Interruption
 Stop long-winded speech immediately through multiple interfaces:
 - **Push-to-Talk Button (`KEY_RIGHTCTRL`)**: Pressing your dictation key aborts active TTS playback in under **50ms** via the control socket.
 - **Acoustic Voice Barge-in**: Enabled for all audio devices (`VOICEMODE_MOUTH_BARGE_DEVICES=.*`).
 - **CLI / Shortcut**: Run `voicemode-stop` or `voicemode control stop` to silence audio instantly.
 
-### 5. In-Session Mode Switching with 100% Shared Context
+### 6. In-Session Mode Switching with 100% Shared Context
 No need to run separate terminals for chat and coding:
 - **Conversation Mode (`talk` / `/talk`)**: Enters an interactive, hands-free verbal loop. Whisper listens, Kokoro answers, and the mic remains open for your reply.
 - **Coding Mode (`code` / `/code`)**: Ends the voice loop and immediately begins hands-on coding using the **exact conversation context** from your discussion.
@@ -123,10 +123,14 @@ No need to run separate terminals for chat and coding:
 ## 🛠️ Repository Layout
 
 ```text
-claude_STT_TTS/
-├── README.md                      # This guide
+claude-agy-voice-engine/
+├── README.md                      # Comprehensive guide & architecture
 ├── LICENSE                        # MIT License
 ├── install.sh                     # One-click installer & configurator
+├── uninstall.sh                   # Modular uninstaller (--agy, --claude, --services, --all)
+├── voice-engine                   # Master switch CLI symlink -> bin/voice-engine
+├── bin/
+│   └── voice-engine               # Master control CLI (on/off/status/toggle/summary/agy)
 ├── bridge/
 │   ├── server.py                  # Dual-port FastAPI bridge (:2022, :8880)
 │   ├── test_bridge.py             # Latency & endpoint test suite
@@ -148,7 +152,7 @@ claude_STT_TTS/
     │   ├── mcp_config.json        # AGY VoiceMode MCP registration
     │   └── skills/                # AGY skills: talk, code, voicemode
     ├── claude/
-    │   ├── commands/              # Claude slash commands (/talk, /code)
+    │   ├── commands/              # Claude slash commands (/talk, /code, /localvoice)
     │   └── skills/                # Claude skills: talk, code, voicemode
     └── dictate/
         ├── dictate.py             # evdev push-to-talk daemon with barge-in
@@ -215,41 +219,74 @@ export KOKORO_VOICES_PATH="/path/to/voices-v1.0.bin"
 - Hold **Right-Ctrl** ➔ Dictate prompts directly at the cursor.
 
 ### In Claude Code (`claude`):
-- Type **`/talk`** ➔ Enters continuous hands-free voice mode.
-- Type **`/code`** ➔ Switches to coding mode.
-- Hold **Right-Ctrl** ➔ Dictate prompts directly at the cursor.
+- Type **`/voice`** ➔ Native Claude Cloud Voice (unhindered, 0% interference).
+- Type **`/localvoice`** or **`/talk`** ➔ Enters continuous hands-free voice mode using local Whisper + Kokoro.
+- Type **`/code`** ➔ Switches back to coding mode.
+- Hold **Right-Ctrl** ➔ Dictate prompts directly at the cursor via `dictate.service`.
 
-### Controlling Audio & Summaries:
+### Controlling the Voice Engine:
 ```bash
-# Check service status
-uvx voice-mode status
+# Power on/off
+voice-engine on            # Turn entire voice engine ON
+voice-engine off           # Turn entire voice engine OFF (stops background services & audio)
+voice-engine toggle        # Toggle ON / OFF
+voice-engine status        # Check diagnostics dashboard
 
-# Mute spoken summary (use quiet completion chime only)
-voicemode-summary off
+# Turn summaries (Default: OFF / Silent)
+voice-engine summary on    # Kokoro reads final turn summaries aloud
+voice-engine summary off   # Silent mode (no completion speech)
 
-# Re-enable spoken summary
-voicemode-summary on
+# Push-to-Talk Daemon
+voice-engine dictate on    # Start Right-Ctrl dictate daemon
+voice-engine dictate off   # Stop Right-Ctrl dictate daemon
 
-# Instant interruption
-voicemode-stop
+# Instant cutoff
+voice-engine stop          # Halts active audio playback immediately
 ```
 
 ---
 
-## 📦 Publishing to GitHub
+## 🗑️ Uninstallation & Modular Removal
 
-To publish this as an open-source project:
+You can cleanly uninstall or disable components anytime without affecting other tools:
+
+### Option A: Using the `voice-engine` switch CLI
+```bash
+# Remove only from Antigravity (AGY)
+voice-engine agy uninstall
+
+# Re-enable Antigravity integration later
+voice-engine agy enable
+
+# Isolate Claude Code hooks (leaves /voice 100% clean)
+voice-engine claude hooks-off
+```
+
+### Option B: Using `uninstall.sh`
+```bash
+# Remove only Antigravity integration (MCP, skills, hooks)
+./uninstall.sh --agy
+
+# Remove only Claude Code integration (commands & skills)
+./uninstall.sh --claude
+
+# Stop, disable and remove systemd background services
+./uninstall.sh --services
+
+# Full uninstallation (removes all services, CLI tools, configs, and hooks)
+./uninstall.sh --all
+```
+
+---
+
+## 📦 GitHub Repository
+
+Source repository: [guidov/claude-agy-voice-engine](https://github.com/guidov/claude-agy-voice-engine.git)
 
 ```bash
-cd /home/guido/claude_STT_TTS
-git init
-git add .
-git commit -m "feat: initial release of local voice engine for Claude Code and Antigravity"
-git branch -M main
-
-# Add your GitHub remote repository:
-git remote add origin git@github.com:<your-username>/claude-agy-voice-engine.git
-git push -u origin main
+git clone git@github.com:guidov/claude-agy-voice-engine.git
+cd claude-agy-voice-engine
+./install.sh
 ```
 
 ---
