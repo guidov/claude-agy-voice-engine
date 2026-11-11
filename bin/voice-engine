@@ -54,6 +54,22 @@ stop_playback() {
     pkill -f "pw-play.*voicemode" >/dev/null 2>&1 || true
 }
 
+speak_test_audio() {
+    local text="${1:-Testing local voice engine audio playback.}"
+    local outfile="/tmp/voice_engine_test.wav"
+    ensure_services_running
+    if is_service_active "claude-voice-bridge.service" && is_port_listening "8880"; then
+        log "Synthesizing test audio via Kokoro TTS..."
+        curl -s -X POST http://127.0.0.1:8880/v1/audio/speech \
+            -H "Content-Type: application/json" \
+            -d "{\"model\":\"kokoro\",\"input\":\"$text\",\"voice\":\"af_sky\",\"response_format\":\"wav\"}" \
+            --output "$outfile" 2>/dev/null && pw-play "$outfile" 2>/dev/null || true
+        success "Audio playback completed."
+    else
+        warn "Voice bridge (:8880) is not ready yet."
+    fi
+}
+
 ensure_services_running() {
     local needed=0
     for svc in "${SERVICES[@]}"; do
@@ -423,6 +439,7 @@ d['voicemode-summary-speaker'] = {
 with open(p, 'w') as f:
     json.dump(d, f, indent=2)
 "
+    speak_test_audio "Antigravity spoken summaries are now enabled."
 }
 
 disable_agy_summary() {
@@ -546,6 +563,9 @@ manage_agy() {
         uninstall|remove)
             uninstall_agy_all
             ;;
+        test)
+            speak_test_audio "${1:-Testing Antigravity voice engine audio playback.}"
+            ;;
         status)
             agy_status
             ;;
@@ -615,7 +635,7 @@ s['hooks']['Stop'] = [
         'hooks': [
             {
                 'type': 'command',
-                'command': '$VOICEMODE_BIN/voicemode-hook-receiver --client claude || true'
+                'command': '$VOICEMODE_BIN/voicemode-hook-receiver || true'
             }
         ]
     }
@@ -624,6 +644,7 @@ with open(p, 'w') as f:
     json.dump(s, f, indent=2)
 "
     fi
+    speak_test_audio "Claude Code spoken summaries are now enabled."
 }
 
 disable_claude_summary() {
@@ -693,7 +714,7 @@ manage_claude() {
                 on|enable)
                     enable_claude_summary
                     success "Claude Code spoken turn summaries ENABLED."
-                    warn "Note: This hook reads summaries upon turn completion. Native /voice remains active."
+                    warn "Note: If Claude Code is already running in a terminal, restart it ('claude') so it reloads settings.json."
                     ;;
                 off|disable)
                     disable_claude_summary
@@ -721,6 +742,9 @@ manage_claude() {
         hooks-off)
             disable_claude_summary
             success "Claude Code Stop hook disabled. Native /voice will run with 0% interference."
+            ;;
+        test)
+            speak_test_audio "${1:-Testing Claude Code voice engine audio playback.}"
             ;;
         status)
             claude_status
@@ -799,6 +823,9 @@ case "$CMD" in
         ;;
     claude)
         manage_claude "$@"
+        ;;
+    test)
+        speak_test_audio "${1:-Testing local voice engine audio playback.}"
         ;;
     -h|--help|help)
         show_help

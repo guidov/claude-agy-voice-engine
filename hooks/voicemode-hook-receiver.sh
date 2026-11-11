@@ -64,12 +64,6 @@ if [ -f "$HOME/.voicemode/engine-disabled" ]; then
   exit 0
 fi
 
-# Quick exit if soundfonts are disabled via sentinel file (circuit breaker)
-if [ -f "$HOME/.voicemode/soundfonts-disabled" ]; then
-  [[ -n "${VOICEMODE_HOOK_DEBUG:-}" ]] && echo "[DEBUG] Soundfonts disabled via sentinel file (~/.voicemode/soundfonts-disabled)" >&2
-  exit 0
-fi
-
 DEBUG="${VOICEMODE_HOOK_DEBUG:-}"
 SOUNDFONTS_BASE="$HOME/.voicemode/soundfonts/current"
 
@@ -165,7 +159,9 @@ if [[ "$EVENT" == "Stop" ]]; then
     exit 0
   fi
   debug "Stop event ($CLIENT): invoking voicemode-speak-summary"
-  python3 "$HOME/.voicemode/bin/voicemode-speak-summary.py" <<< "${JSON_INPUT:-}" >/dev/null 2>&1 &
+  TURN_FILE="/tmp/voicemode_last_turn_${CLIENT:-unknown}.json"
+  echo "${JSON_INPUT:-}" > "$TURN_FILE"
+  nohup python3 "$HOME/.voicemode/bin/voicemode-speak-summary.py" "$TURN_FILE" < /dev/null >/dev/null 2>&1 &
   disown 2>/dev/null || true
   exit 0
 fi
@@ -196,6 +192,9 @@ fi
 # Check if soundfonts are enabled
 # First check env var, then check config file
 soundfonts_enabled() {
+  if [ -f "$HOME/.voicemode/soundfonts-disabled" ]; then
+    return 1
+  fi
   local enabled="${VOICEMODE_SOUNDFONTS_ENABLED:-}"
 
   # If env var is set, use it

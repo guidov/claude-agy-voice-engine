@@ -263,9 +263,19 @@ def main():
         log("Summary TTS disabled via sentinel - exiting silently")
         return
 
-    # Read stdin from Stop hook
+    # Read input from argument (file or string), or fallback to stdin
     json_str = ""
-    if not sys.stdin.isatty():
+    if len(sys.argv) > 1 and sys.argv[1]:
+        arg = sys.argv[1]
+        if os.path.isfile(arg):
+            try:
+                with open(arg, "r") as f:
+                    json_str = f.read()
+            except Exception:
+                pass
+        else:
+            json_str = arg
+    elif not sys.stdin.isatty():
         try:
             json_str = sys.stdin.read()
         except Exception:
